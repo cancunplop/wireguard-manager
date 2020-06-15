@@ -200,6 +200,7 @@ function headless-install() {
     SERVER_HOST_V4_SETTINGS=${SERVER_HOST_V4_SETTINGS:-1}
     SERVER_HOST_V6_SETTINGS=${SERVER_HOST_V6_SETTINGS:-1}
     SERVER_PUB_NIC_SETTINGS=${SERVER_PUB_NIC_SETTINGS:-1}
+    SERVER_PUB_NIC_IPV6_SETTINGS=${SERVER_PUB_NIC_IPV6_SETTINGS:-1}
     SERVER_PORT_SETTINGS=${SERVER_PORT_SETTINGS:-1}
     NAT_CHOICE_SETTINGS=${NAT_CHOICE_SETTINGS:-1}
     MTU_CHOICE_SETTINGS=${MTU_CHOICE_SETTINGS:-1}
@@ -300,7 +301,7 @@ if [ ! -f "$WG_CONFIG" ]; then
       SERVER_HOST_V4="$(curl -4 -s 'https://api.ipengine.dev' | jq -r '.ip')"
       ;;
     2)
-      SERVER_HOST_V4=$(ip addr | grep 'inet' | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
+      SERVER_HOST_V4=$(ip r get to 8.8.8.8 | perl -ne '/src ([\w.]+)/ && print "$1\n"')
       ;;
     3)
       read -rp "Custom IPV4: " -e -i "$(curl -4 -s 'https://api.ipengine.dev' | jq -r '.ip')" SERVER_HOST_V4
@@ -337,9 +338,9 @@ if [ ! -f "$WG_CONFIG" ]; then
   # Set Port
   test-connectivity-v6
 
-  # Determine ipv6
+  # Determine ipv4 device
   function server-pub-nic() {
-    echo "How would you like to detect IPV6?"
+    echo "How would you like to detect IPV4 device?"
     echo "  1) IP (Recommended)"
     echo "  2) Custom (Advanced)"
     until [[ "$SERVER_PUB_NIC_SETTINGS" =~ ^[1-2]$ ]]; do
@@ -355,6 +356,26 @@ if [ ! -f "$WG_CONFIG" ]; then
       ;;
     esac
   }
+
+  # Determine ipv6 device
+  function server-pub-nic() {
+    echo "How would you like to detect IPV6 device?"
+    echo "  1) IP (Recommended)"
+    echo "  2) Custom (Advanced)"
+    until [[ "$SERVER_PUB_NIC_IPV6_SETTINGS" =~ ^[1-2]$ ]]; do
+      read -rp "nic choice [1-2]: " -e -i 1 SERVER_PUB_NIC_IPV6_SETTINGS
+    done
+    # Apply port response
+    case $SERVER_PUB_NIC_IPV6_SETTINGS in
+    1)
+      SERVER_PUB_NIC_IPV6="$(ip -6 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)"
+      ;;
+    2)
+      read -rp "Custom NAT: " -e -i "$(ip -6 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)" SERVER_PUB_IPV6_NIC
+      ;;
+    esac
+  }
+
 
   # Set Port
   server-pub-nic
@@ -835,8 +856,8 @@ if [ ! -f "$WG_CONFIG" ]; then
 Address = $GATEWAY_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4,$GATEWAY_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
-PostUp = iptables -A FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -A FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; ip6tables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; iptables -A INPUT -s $PRIVATE_SUBNET_V4 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT; ip6tables -A INPUT -s $PRIVATE_SUBNET_V6 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
-PostDown = iptables -D FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -D FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; iptables -D INPUT -s $PRIVATE_SUBNET_V4 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT; ip6tables -D INPUT -s $PRIVATE_SUBNET_V6 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+PostUp = iptables -A FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -A FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; ip6tables -t nat -A POSTROUTING -o $SERVER_PUB_NIC_IPV6 -j MASQUERADE; iptables -A INPUT -s $PRIVATE_SUBNET_V4 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT; ip6tables -A INPUT -s $PRIVATE_SUBNET_V6 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+PostDown = iptables -D FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE; ip6tables -D FORWARD -i $WIREGUARD_PUB_NIC -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $SERVER_PUB_NIC_IPV6 -j MASQUERADE; iptables -D INPUT -s $PRIVATE_SUBNET_V4 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT; ip6tables -D INPUT -s $PRIVATE_SUBNET_V6 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
 SaveConfig = false
 # $CLIENT_NAME start
 [Peer]
